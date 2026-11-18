@@ -1,0 +1,43 @@
+name: Publish to npm
+
+# Publishes on a GitHub Release, or by hand from the Actions tab.
+# The npm token comes from the NPM_TOKEN repository secret — nothing is stored
+# in the repo, and the job cannot run at all until that secret exists.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # Needed by `npm publish --provenance`, which attaches a signed build
+  # attestation so users can verify the tarball was built here.
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          # Points npm at the public registry. The runner has no registry
+          # configured by default, so without this a publish could land on a
+          # mirror or fail outright.
+          registry-url: https://registry.npmjs.org
+
+      # No `npm ci` on purpose: this package has no runtime dependencies, and
+      # its only devDependency (playwright) drives the preview server, not the
+      # build. Installing it would add ~100 MB and minutes to every publish.
+      - name: Build the client bundle
+        run: npm run build
+
+      - name: Verify the bundle matches the source
+        run: npm run check
+
+      - name: Publish
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
