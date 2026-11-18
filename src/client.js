@@ -1,6 +1,6 @@
 'use strict';
 
-const PACKAGE_NAME = '@ljwei-stak/dsh-folding-windows';
+const PACKAGE_NAME = '@jiqinga/dsh-folding-windows';
 const STORAGE_KEY = 'dsh-folding-windows:collapsed:v1';
 const RUNTIME_KEY = '__dshFoldingWindowsRuntime__';
 
