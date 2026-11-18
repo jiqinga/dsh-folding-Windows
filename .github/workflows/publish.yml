@@ -1,17 +1,18 @@
 name: Publish to npm
 
-# Publishes on a GitHub Release, or by hand from the Actions tab.
-# The npm token comes from the NPM_TOKEN repository secret — nothing is stored
-# in the repo, and the job cannot run at all until that secret exists.
+# Publishes with npm Trusted Publishing (OIDC) — no npm token, no NPM_TOKEN secret.
+# Configured at npmjs.com -> @jiqinga/dsh-folding-windows -> Settings -> Trusted Publisher.
+# Requires npm CLI >= 11.5.1 and Node >= 22.14.0 (Node 24 below covers both).
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 permissions:
   contents: read
-  # Needed by `npm publish --provenance`, which attaches a signed build
-  # attestation so users can verify the tarball was built here.
+  # Required for OIDC. Do NOT add NODE_AUTH_TOKEN / NPM_TOKEN here — npm
+  # detects the OIDC environment automatically and uses it first.
   id-token: write
 
 jobs:
@@ -23,10 +24,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          # Points npm at the public registry. The runner has no registry
-          # configured by default, so without this a publish could land on a
-          # mirror or fail outright.
           registry-url: https://registry.npmjs.org
+          # Never cache in a release build: a restored cache can reintroduce a
+          # dependency that no longer matches the lockfile.
+          package-manager-cache: false
 
       # No `npm ci` on purpose: this package has no runtime dependencies, and
       # its only devDependency (playwright) drives the preview server, not the
@@ -37,7 +38,7 @@ jobs:
       - name: Verify the bundle matches the source
         run: npm run check
 
+      # Provenance is generated automatically under trusted publishing, so no
+      # --provenance flag is needed.
       - name: Publish
-        run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public
