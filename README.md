@@ -9,31 +9,31 @@
 
 **许可证：** [MIT](LICENSE)
 
-![默认收起后的独立预览](https://raw.githubusercontent.com/Alice-Marx/dsh-folding-Windows/main/docs/folded.png)
+![默认收起后的独立预览](https://raw.githubusercontent.com/jiqinga/dsh-folding-Windows/main/docs/folded.png)
 
 ## 截图
 
-- [功能区展开](https://raw.githubusercontent.com/Alice-Marx/dsh-folding-Windows/main/docs/expanded.png)
-- [工作区收起](https://raw.githubusercontent.com/Alice-Marx/dsh-folding-Windows/main/docs/workspaces-folded.png)
-- [项目置顶](https://raw.githubusercontent.com/Alice-Marx/dsh-folding-Windows/main/docs/pinned.png)
+- [功能区展开](https://raw.githubusercontent.com/jiqinga/dsh-folding-Windows/main/docs/expanded.png)
+- [工作区收起](https://raw.githubusercontent.com/jiqinga/dsh-folding-Windows/main/docs/workspaces-folded.png)
+- [项目置顶](https://raw.githubusercontent.com/jiqinga/dsh-folding-Windows/main/docs/pinned.png)
 
 ## 安装
 
 需要已安装可运行的 DSH CLI 和 pnpm。在终端运行以下命令，将插件安装到 DSH 的 Web 配置：
 
 ```sh
-dsh plugin --profile web add @ljwei-stak/dsh-folding-windows
+dsh plugin --profile web add @jiqinga/dsh-folding-windows
 dsh --profile web
 ```
 
 如果希望直接从 GitHub 源码安装：
 
 ```sh
-dsh plugin --profile web add github:Alice-Marx/dsh-folding-Windows
+dsh plugin --profile web add github:jiqinga/dsh-folding-Windows
 dsh --profile web
 ```
 
-将 `web` 替换为使用 Web 界面的其他配置名。重新启动 DSH Web 配置后插件生效；更新或卸载可使用 `dsh plugin --profile web update @ljwei-stak/dsh-folding-windows` 或 `dsh plugin --profile web remove @ljwei-stak/dsh-folding-windows`。
+将 `web` 替换为使用 Web 界面的其他配置名。重新启动 DSH Web 配置后插件生效；更新或卸载可使用 `dsh plugin --profile web update @jiqinga/dsh-folding-windows` 或 `dsh plugin --profile web remove @jiqinga/dsh-folding-windows`。
 
 ## 支持的配置
 
