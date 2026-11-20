@@ -143,6 +143,24 @@ test('navigation can appear late, update its count, and remount without duplicat
   }, '?empty=1')
 })
 
+test('counts panel entries wrapped by modern sidebar containers', async () => {
+  await withPage(async page => {
+    await nav(page).evaluate(element => {
+      element.innerHTML = [
+        '<div class="panel-item"><button type="button" aria-label="插件">插件</button></div>',
+        '<div class="panel-item"><button type="button" aria-label="插件市场">插件市场</button><button type="button" aria-label="固定">固定</button></div>'
+      ].join('')
+    })
+    await page.waitForFunction(() => {
+      const control = document.querySelector('button[data-dsh-folding-section="tools"]')
+      return control?.textContent.includes('2') && getComputedStyle(control).display !== 'none'
+    })
+    const control = page.locator('button[data-dsh-folding-section="tools"]')
+    assert.equal(await control.getAttribute('data-dsh-folding-empty'), 'false')
+    assert.match(await control.textContent(), /2/)
+  })
+})
+
 test('whole-sidebar collapse keeps the folding control hidden and retains local state', async () => {
   await withPage(async page => {
     await expectExpanded(page, false)

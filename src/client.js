@@ -129,7 +129,10 @@ function isValidSidebarNav(nav) {
 function getNavItemCount(nav) {
   let count = 0;
   for (const child of Array.from(nav.children)) {
-    if (child.tagName === 'BUTTON' && child.hasAttribute('aria-label')) count += 1;
+    const isDirectButton = child.tagName === 'BUTTON' && child.hasAttribute('aria-label');
+    const hasWrappedButton = typeof child.querySelector === 'function'
+      && child.querySelector('button[aria-label]') !== null;
+    if (isDirectButton || hasWrappedButton) count += 1;
   }
   return count;
 }
