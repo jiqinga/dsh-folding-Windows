@@ -55,20 +55,21 @@ async function expectExpanded(page, expanded) {
 
 async function workspaceToggle(page) {
   await page.waitForFunction(() => {
-    const region = document.querySelector('.sidebar-root > .region')
-    return region?.id && [...document.querySelectorAll('.sidebar-root > button[aria-controls]')].some(button => button.getAttribute('aria-controls') === region.id)
+    const control = document.querySelector('button[data-dsh-folding-section="workspaces"]')
+    return control && control.getAttribute('aria-controls')
   })
-  const regionId = await workspaceRegion(page).getAttribute('id')
-  return page.locator(`.sidebar-root > button[aria-controls=${JSON.stringify(regionId)}]`)
+  return page.locator('button[data-dsh-folding-section="workspaces"]').first()
 }
 
 async function expectWorkspaceExpanded(page, expanded) {
   const control = await workspaceToggle(page)
   await page.waitForFunction(expected => {
-    const region = document.querySelector('.sidebar-root > .region')
-    const button = [...document.querySelectorAll('.sidebar-root > button[aria-controls]')].find(item => item.getAttribute('aria-controls') === region?.id)
+    const button = document.querySelector('button[data-dsh-folding-section="workspaces"]')
+    const id = button?.getAttribute('aria-controls')
+    const target = id ? document.getElementById(id) : null
+    const list = target || document.querySelector('.workspace-list-area') || document.querySelector('.workspace-tree')
     return button?.getAttribute('aria-expanded') === String(expected)
-      && (getComputedStyle(region).display !== 'none') === expected
+      && !!list && (getComputedStyle(list).display !== 'none') === expected
   }, expanded)
   assert.equal(await control.getAttribute('aria-expanded'), String(expanded))
 }
@@ -161,16 +162,31 @@ test('counts panel entries wrapped by modern sidebar containers', async () => {
   })
 })
 
-test('keeps modern folding controls outside the scrolling sidebar region', async () => {
+test('injects the workspace fold button into the existing workspace header', async () => {
   await withPage(async page => {
-    const controls = page.locator('.sidebar-root > button[data-dsh-folding-control]')
+    const tools = page.locator('button[data-dsh-folding-section="tools"]')
+    const workspace = page.locator('button[data-dsh-folding-section="workspaces"]')
     await page.waitForFunction(() => {
-      const scrollport = document.querySelector('[data-sidebar-scrollport]')
-      const controls = [...document.querySelectorAll('.sidebar-root > button[data-dsh-folding-control]')]
-      return scrollport && controls.length === 2 && controls.every(control => !scrollport.contains(control))
+      const header = document.querySelector('.workspace-header')
+      const control = document.querySelector('button[data-dsh-folding-section="workspaces"]')
+      return header && control && header.contains(control)
     })
-    assert.equal(await controls.count(), 2)
-    assert.equal(await page.locator('[data-sidebar-scrollport] > button[data-dsh-folding-control]').count(), 0)
+    // The tools control stays in persistent chrome above the scroll area.
+    assert.equal(await page.locator('.sidebar-root > button[data-dsh-folding-section="tools"]').count(), 1)
+    assert.equal(await page.locator('.workspace-header > button[data-dsh-folding-section="workspaces"]').count(), 1)
+    // The fold button follows the "工作区" caption instead of preceding it.
+    assert.equal(await page.evaluate(() => {
+      const header = document.querySelector('.workspace-header')
+      const label = header.querySelector('.workspace-label')
+      const control = header.querySelector('button[data-dsh-folding-section="workspaces"]')
+      if (!label || !control) return false
+      return !!(label.compareDocumentPosition(control) & Node.DOCUMENT_POSITION_FOLLOWING)
+    }), true)
+    assert.equal(await page.evaluate(() => {
+      const scrollport = document.querySelector('[data-sidebar-scrollport]')
+      const control = document.querySelector('button[data-dsh-folding-section="tools"]')
+      return !!scrollport && !!control && !scrollport.contains(control)
+    }), true)
 
     await page.locator('[data-sidebar-scrollport]').evaluate(scrollport => {
       scrollport.style.height = '120px'
@@ -180,37 +196,35 @@ test('keeps modern folding controls outside the scrolling sidebar region', async
       scrollport.appendChild(filler)
       scrollport.scrollTop = scrollport.scrollHeight
     })
-
-    const positions = await controls.evaluateAll(elements => elements.map(element => {
-      const rect = element.getBoundingClientRect()
-      return { top: rect.top, bottom: rect.bottom }
-    }))
+    const toolsRect = await tools.evaluate(element => { const rect = element.getBoundingClientRect(); return { top: rect.top, bottom: rect.bottom } })
     const viewportHeight = await page.evaluate(() => window.innerHeight)
-    positions.forEach(position => {
-      assert.ok(position.top >= 0)
-      assert.ok(position.bottom <= viewportHeight)
-    })
+    assert.ok(toolsRect.top >= 0 && toolsRect.bottom <= viewportHeight)
 
-    const tools = page.locator('button[data-dsh-folding-section="tools"]')
-    await tools.click()
-    await page.waitForFunction(() => {
-      const control = document.querySelector('button[data-dsh-folding-section="tools"]')
-      const nav = document.querySelector('nav[aria-label="全局面板"]')
-      return control?.getAttribute('aria-expanded') === 'true' && nav?.getAttribute('data-dsh-folding-hidden') !== 'true'
-    })
-    await tools.click()
-    await page.waitForFunction(() => {
-      const control = document.querySelector('button[data-dsh-folding-section="tools"]')
-      const nav = document.querySelector('nav[aria-label="全局面板"]')
-      return control?.getAttribute('aria-expanded') === 'false' && nav?.getAttribute('data-dsh-folding-hidden') === 'true'
-    })
-    await tools.click()
-    await page.waitForFunction(() => document.querySelector('nav[aria-label="全局面板"]')?.getAttribute('data-dsh-folding-hidden') !== 'true')
-    const workspace = page.locator('button[data-dsh-folding-section="workspaces"]')
     await workspace.click()
-    await page.waitForFunction(() => document.querySelector('.region')?.getAttribute('data-dsh-folding-workspaces-hidden') === 'true')
+    await page.waitForFunction(() => {
+      const control = document.querySelector('button[data-dsh-folding-section="workspaces"]')
+      const id = control?.getAttribute('aria-controls')
+      const target = id ? document.getElementById(id) : document.querySelector('.workspace-list-area')
+      return control?.getAttribute('aria-expanded') === 'false' && target && getComputedStyle(target).display === 'none'
+    })
+    assert.equal(await page.locator('.workspace-header').isVisible(), true)
+    assert.equal(await page.locator('.workspace-header button[aria-label="搜索会话"]').isVisible(), true)
+    assert.equal(await page.locator('.workspace-header button[aria-label="添加工作区"]').isVisible(), true)
     await workspace.click()
-    await page.waitForFunction(() => document.querySelector('.region')?.getAttribute('data-dsh-folding-workspaces-hidden') !== 'true')
+    await page.waitForFunction(() => {
+      const control = document.querySelector('button[data-dsh-folding-section="workspaces"]')
+      const id = control?.getAttribute('aria-controls')
+      const target = id ? document.getElementById(id) : document.querySelector('.workspace-list-area')
+      return control?.getAttribute('aria-expanded') === 'true' && target && getComputedStyle(target).display !== 'none'
+    })
+    // A click on the blank part of the header row also folds the section.
+    await page.locator('.workspace-header').click({ position: { x: 120, y: 18 } })
+    await page.waitForFunction(() => {
+      const control = document.querySelector('button[data-dsh-folding-section="workspaces"]')
+      const id = control?.getAttribute('aria-controls')
+      const target = id ? document.getElementById(id) : document.querySelector('.workspace-list-area')
+      return control?.getAttribute('aria-expanded') === 'false' && target && getComputedStyle(target).display === 'none'
+    })
   }, '?layout=modern')
 })
 
@@ -357,24 +371,27 @@ test('workspace folding still finds the browser when DSH nests it inside slot wr
     const control = await workspaceToggle(page)
     await control.click()
     await expectWorkspaceExpanded(page, false)
-    assert.equal(await page.getByRole('button', { name: '搜索会话', exact: true }).isVisible(), false)
+    assert.equal(await page.locator('.workspace-header').isVisible(), true)
+    assert.equal(await page.locator('.workspace-tree').isVisible(), false)
     await control.click()
     await expectWorkspaceExpanded(page, true)
   }, '?wrap=1')
 })
 
-test('workspace folding hides the complete browser, preserves sessions, and keeps settings at the foot', async () => {
+test('workspace folding hides only the session list and keeps the header controls reachable', async () => {
   await withPage(async page => {
     await expectWorkspaceExpanded(page, true)
     const control = await workspaceToggle(page)
     assert.equal(await control.getAttribute('data-dsh-folding-section'), 'workspaces')
-    assert.match(await control.textContent(), /工作区/)
+    assert.equal(await control.getAttribute('data-dsh-folding-in-header'), 'true')
+    const header = page.locator('.workspace-header')
     const before = await workspaceRegion(page).evaluate(element => element.innerHTML)
     const settingsBottom = await page.locator('.foot-area').evaluate(element => element.getBoundingClientRect().bottom)
     await control.click()
     await expectWorkspaceExpanded(page, false)
-    assert.equal(await page.getByRole('button', { name: '搜索会话', exact: true }).isVisible(), false)
-    assert.equal(await page.getByRole('button', { name: '添加工作区', exact: true }).isVisible(), false)
+    assert.equal(await header.isVisible(), true)
+    assert.equal(await page.getByRole('button', { name: '搜索会话', exact: true }).isVisible(), true)
+    assert.equal(await page.getByRole('button', { name: '添加工作区', exact: true }).isVisible(), true)
     assert.equal(await page.locator('.session-row').first().isVisible(), false)
     assert.equal(await page.getByRole('button', { name: '设置', exact: true }).isVisible(), true)
     assert.equal(await page.locator('.foot-area').evaluate(element => element.getBoundingClientRect().bottom), settingsBottom)
@@ -434,7 +451,7 @@ test('workspace control works without global panels and does not touch a workspa
     assert.equal(await page.locator('#unrelated-workspace').isVisible(), true)
     assert.equal(await page.locator('#unrelated-workspace').evaluate(element => element.outerHTML), unrelated)
     assert.equal(await page.locator('main button[aria-controls]').count(), 0)
-    assert.equal(await page.locator('.sidebar-root > button[aria-controls]').count(), 1)
+    assert.equal(await page.locator('button[data-dsh-folding-section="workspaces"]').count(), 1)
   }, '?empty=1')
 })
 
@@ -442,21 +459,21 @@ test('workspace can mount late and remount with its remembered state without dup
   await withPage(async page => {
     await workspaceRegion(page).evaluate(element => element.remove())
     await page.evaluate(() => { window.disposeFolding = window.installFolding() })
-    assert.equal(await page.locator('.sidebar-root > button[data-dsh-folding-section="workspaces"]').count(), 0)
+    assert.equal(await page.locator('button[data-dsh-folding-section="workspaces"]').count(), 0)
     await page.locator('.foot-area').evaluate((element, markup) => element.insertAdjacentHTML('beforebegin', markup), workspace())
     await expectWorkspaceExpanded(page, true)
     await (await workspaceToggle(page)).click()
     await expectWorkspaceExpanded(page, false)
     await workspaceRegion(page).evaluate((element, markup) => { element.outerHTML = markup }, workspace())
     await expectWorkspaceExpanded(page, false)
-    assert.equal(await page.locator('.sidebar-root > button[data-dsh-folding-section="workspaces"]').count(), 1)
+    assert.equal(await page.locator('button[data-dsh-folding-section="workspaces"]').count(), 1)
     await page.evaluate(() => {
       const oldDispose = window.disposeFolding
       window.disposeFolding = window.installFolding()
       oldDispose()
     })
     await expectWorkspaceExpanded(page, false)
-    assert.equal(await page.locator('.sidebar-root > button[data-dsh-folding-section="workspaces"]').count(), 1)
+    assert.equal(await page.locator('button[data-dsh-folding-section="workspaces"]').count(), 1)
     await (await workspaceToggle(page)).click()
     await expectWorkspaceExpanded(page, true)
   }, '?no-auto=1')
@@ -472,7 +489,7 @@ test('workspace disposal restores preexisting attributes and generated ids exact
     })
     await page.evaluate(() => { window.disposeFolding = window.installFolding() })
     await expectWorkspaceExpanded(page, true)
-    assert.ok(await workspaceRegion(page).getAttribute('id'))
+    assert.ok(await page.locator('.workspace-list-area').evaluate(element => element.getAttribute('id')))
     await (await workspaceToggle(page)).click()
     await expectWorkspaceExpanded(page, false)
     await page.evaluate(() => { window.disposeFolding() })
@@ -490,11 +507,11 @@ test('workspace state survives the whole sidebar rail and restoring its wide bro
     await expectWorkspaceExpanded(page, false)
     await page.locator('#frame').evaluate(element => element.setAttribute('data-sidebar-collapsed', 'true'))
     await page.waitForFunction(() => {
-      const button = document.querySelector('.sidebar-root > button[data-dsh-folding-section="workspaces"]')
+      const button = document.querySelector('button[data-dsh-folding-section="workspaces"]')
       return button && getComputedStyle(button).display === 'none'
     })
     await workspaceRegion(page).evaluate(element => {
-      element.innerHTML = '<div class="workspace-browser"><div class="workspace-header"><button type="button" aria-label="添加工作区">＋</button></div><div class="workspace-search"><button type="button" aria-label="搜索会话">⌕</button></div><div class="workspace-list-area"><div class="workspace-tree" role="tree" aria-label="会话"></div></div></div>'
+      element.innerHTML = '<div class="workspace-browser"><div class="workspace-header"><button type="button" aria-label="添加工作区">＋</button><div class="workspace-search"><button type="button" aria-label="搜索会话">⌕</button></div></div><div class="workspace-list-area"><div class="workspace-tree" role="tree" aria-label="会话"></div></div></div>'
     })
     assert.equal(await (await workspaceToggle(page)).isVisible(), false)
     await workspaceRegion(page).evaluate((element, markup) => { element.outerHTML = markup }, workspace())
@@ -517,10 +534,11 @@ test('recognizes English workspaces and the flat Sessions view independently of 
       await workspaceRegion(page).evaluate((element, markup) => { element.outerHTML = markup }, workspace({ english: true, flat }))
       await page.evaluate(() => { window.disposeFolding = window.installFolding() })
       await expectWorkspaceExpanded(page, true)
-      assert.match(await (await workspaceToggle(page)).textContent(), /Workspaces/)
+      assert.match(await (await workspaceToggle(page)).getAttribute('title'), /workspaces/i)
       await (await workspaceToggle(page)).click()
       await expectWorkspaceExpanded(page, false)
-      assert.equal(await page.getByRole('button', { name: 'Search sessions', exact: true }).isVisible(), false)
+      assert.equal(await page.locator('.workspace-header').isVisible(), true)
+      assert.equal(await page.getByRole('tree', { name: 'Sessions', exact: true }).isVisible(), false)
       await (await workspaceToggle(page)).click()
       await expectWorkspaceExpanded(page, true)
       assert.equal(await page.getByRole('tree', { name: 'Sessions', exact: true }).isVisible(), true)
@@ -546,9 +564,9 @@ test('a cross-tab workspace fold moves focus to its own control and removes sess
       for (const [key, value] of entries) localStorage.setItem(key, value)
     }, collapsedStorage)
     await expectWorkspaceExpanded(page, false)
-    assert.equal(await page.evaluate(() => document.activeElement.getAttribute('aria-controls')), await workspaceRegion(page).getAttribute('id'))
+    assert.equal(await page.evaluate(() => document.activeElement.getAttribute('data-dsh-folding-section')), 'workspaces')
     await page.keyboard.press('Tab')
-    assert.equal(await page.evaluate(() => document.activeElement.closest('.region') !== null), false)
+    assert.equal(await page.evaluate(() => document.activeElement.closest('.workspace-list-area') !== null), false)
     await expectExpanded(page, false)
     await writer.close()
   })

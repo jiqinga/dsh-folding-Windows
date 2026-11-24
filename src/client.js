@@ -25,18 +25,19 @@ button[data-dsh-folding-control] {
   -webkit-appearance: none;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   width: 100%;
   min-width: 0;
+  flex: 0 0 auto;
   height: 36px;
   margin: 0 0 4px;
-  padding: 0 10px;
+  padding: 0 0 0 4px;
   border: 0;
-  border-radius: var(--dsw-radius-md, 6px);
+  border-radius: 0;
   background: transparent;
   color: var(--dsw-alias-label-secondary, var(--dsh-folding-fg));
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1;
   text-align: left;
   cursor: pointer;
@@ -44,7 +45,7 @@ button[data-dsh-folding-control] {
 }
 
 button[data-dsh-folding-control] > [data-dsh-folding-role="label"] {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -52,19 +53,24 @@ button[data-dsh-folding-control] > [data-dsh-folding-role="label"] {
 }
 
 button[data-dsh-folding-control] > [data-dsh-folding-role="count"] {
+  order: 3;
+  margin-left: auto;
   flex: 0 0 auto;
   opacity: 0.75;
   font-variant-numeric: tabular-nums;
 }
 
 button[data-dsh-folding-control] > [data-dsh-folding-role="arrow"] {
+  order: 2;
   flex: 0 0 auto;
-  width: 1em;
+  width: 24px;
+  font-size: 12px;
   text-align: center;
 }
 
 button[data-dsh-folding-control]:hover {
-  background-color: var(--dsw-alias-interactive-bg-hover, var(--dsh-folding-hover-bg));
+  /* The workspace header has no row-level hover fill; keep the tools row flat too. */
+  background-color: transparent;
 }
 
 button[data-dsh-folding-control]:focus-visible {

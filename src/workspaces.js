@@ -78,7 +78,10 @@ function installWorkspaceFolding(doc, win) {
     }
     style.textContent =
       'button[data-dsh-folding-control][data-dsh-folding-section="workspaces"]{flex:none;}' +
-      'button[data-dsh-folding-control][data-dsh-folding-section="workspaces"][aria-expanded="false"]{margin-bottom:auto;}' +
+      'button[data-dsh-folding-control][data-dsh-folding-section="workspaces"][data-dsh-folding-in-header="false"][aria-expanded="false"]{margin-bottom:auto;}' +
+      'button[data-dsh-folding-control][data-dsh-folding-section="workspaces"][data-dsh-folding-in-header="true"]{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;margin:0 4px 0 0;border:0;background:transparent;border-radius:6px;cursor:pointer;color:inherit;font-size:12px;line-height:1;}' +
+      'button[data-dsh-folding-control][data-dsh-folding-section="workspaces"][data-dsh-folding-in-header="true"] [data-dsh-folding-role="label"]{display:none;}' +
+      '[data-dsh-folding-header-clickable="true"]{cursor:pointer;}' +
       '[data-dsh-folding-workspaces-hidden="true"]{display:none!important;}';
     return style;
   }
@@ -113,14 +116,58 @@ function installWorkspaceFolding(doc, win) {
     return fallback;
   }
 
+  // The "工作区" title row (label + search + actions) is the topmost ancestor of
+  // the search button that does not also wrap the session tree. Injecting the
+  // fold button there reuses the existing workspace menu instead of inventing a
+  // second "工作区" row.
+  function findHeader(searchButton, tree, seat) {
+    let node = searchButton;
+    let header = null;
+    while (node && node !== seat) {
+      const parent = node.parentElement;
+      if (!parent || parent === seat) break;
+      if (parent.contains(tree)) break;
+      header = parent;
+      node = parent;
+    }
+    return header;
+  }
+
+  function findListTarget(tree, header, seat) {
+    const parent = tree.parentElement;
+    if (parent && parent !== seat && !parent.contains(header)) return parent;
+    return tree;
+  }
+
+  // Locate the visible "工作区 / Workspaces" caption inside the header. The fold
+  // button belongs after this caption, never before it.
+  function findHeaderLabel(header, language) {
+    if (!header) return null;
+    const preferred = header.querySelector('.workspace-label');
+    if (preferred && header.contains(preferred)) return preferred;
+    const children = header.children;
+    for (let i = 0; i < children.length; i++) {
+      const child = children[i];
+      if (!child || child.tagName === 'BUTTON' || child.tagName === 'INPUT') continue;
+      if (typeof child.querySelector === 'function' && child.querySelector('button, input')) continue;
+      const raw = child.textContent || '';
+      if (!raw.trim()) continue;
+      if (language === 'zh' ? raw.indexOf('工作区') !== -1 : /workspace/i.test(raw)) return child;
+    }
+    return null;
+  }
+
   function findBrowser(seat) {
     const searchButton = findSearchButton(seat);
     if (!searchButton) return null;
     // DSH renders the browser inside slot wrappers whose depth is not part of
     // its public contract, so the session tree — not a child layout — proves
     // this seat owns the workspace area.
-    if (!findSessionTree(seat)) return null;
-    return { searchButton: searchButton };
+    const tree = findSessionTree(seat);
+    if (!tree) return null;
+    const header = findHeader(searchButton, tree, seat);
+    const listTarget = header ? findListTarget(tree, header, seat) : null;
+    return { searchButton: searchButton, tree: tree, header: header, listTarget: listTarget };
   }
 
   // DSH 0.2.2 moved the New Session control out of the panel nav's parent, so
@@ -148,19 +195,40 @@ function installWorkspaceFolding(doc, win) {
   }
 
   function ensureSeatId(record) {
-    const seat = record.seat;
-    const existing = seat.getAttribute('id');
+    const target = record.hideTarget || record.seat;
+    const existing = target.getAttribute('id');
     if (existing) return existing;
 
     if (record.generatedId && !doc.getElementById(record.generatedId)) {
-      seat.setAttribute('id', record.generatedId);
+      target.setAttribute('id', record.generatedId);
       return record.generatedId;
     }
 
     const id = generateUniqueId();
     record.generatedId = id;
-    seat.setAttribute('id', id);
+    target.setAttribute('id', id);
     return id;
+  }
+
+  function resolveHideTarget(seat, header, listTarget) {
+    return header && listTarget ? listTarget : seat;
+  }
+
+  function applyBrowserInfo(record, browserInfo) {
+    record.searchButton = browserInfo.searchButton;
+    record.language = detectLanguage(browserInfo.searchButton);
+    record.tree = browserInfo.tree;
+    record.header = browserInfo.header;
+    record.headerLabel = null;
+    record.listTarget = browserInfo.listTarget;
+    const nextTarget = resolveHideTarget(record.seat, record.header, record.listTarget);
+    if (record.hideTarget !== nextTarget) {
+      if (record.hideTarget) restoreTargetAttributes(record);
+      record.hideTarget = nextTarget;
+      record.oldHidden = nextTarget ? nextTarget.getAttribute(HIDDEN_ATTR) : null;
+      record.oldId = nextTarget ? nextTarget.getAttribute('id') : null;
+    }
+    bindHeaderClick(record);
   }
 
   function createRecord(root, appFrame, nav, seat, browserInfo) {
@@ -169,14 +237,23 @@ function installWorkspaceFolding(doc, win) {
       appFrame: appFrame,
       nav: nav,
       seat: seat,
-      searchButton: browserInfo.searchButton,
-      language: detectLanguage(browserInfo.searchButton),
+      searchButton: null,
+      tree: null,
+      header: null,
+      headerLabel: null,
+      listTarget: null,
+      hideTarget: null,
+      language: 'zh',
       toggle: null,
-      oldId: seat.getAttribute('id'),
-      oldHidden: seat.getAttribute(HIDDEN_ATTR),
+      oldId: null,
+      oldHidden: null,
       generatedId: null,
-      handleClick: null
+      handleClick: null,
+      headerBound: null,
+      headerHandleClick: null
     };
+
+    applyBrowserInfo(record, browserInfo);
 
     record.handleClick = function (event) {
       if (event && typeof event.preventDefault === 'function') {
@@ -186,6 +263,40 @@ function installWorkspaceFolding(doc, win) {
     };
 
     return record;
+  }
+
+  // Let a click anywhere on the workspace header row (except its inner buttons and
+  // inputs) toggle the section, matching how the fold icon behaves.
+  function bindHeaderClick(record) {
+    const header = record.header;
+    if (record.headerBound && record.headerBound !== header) detachHeaderClick(record);
+    if (!header) {
+      if (record.headerBound) detachHeaderClick(record);
+      return;
+    }
+    if (record.headerBound === header) return;
+    record.headerBound = header;
+    setAttrIfChanged(header, 'data-dsh-folding-header-clickable', 'true');
+    record.headerHandleClick = function (event) {
+      const target = event && event.target;
+      if (target && typeof target.closest === 'function') {
+        if (target.closest('button, input, textarea, select, a, [role="button"], [role="treeitem"], [contenteditable="true"]')) {
+          return;
+        }
+      }
+      if (typeof record.handleClick === 'function') record.handleClick(event);
+    };
+    header.addEventListener('click', record.headerHandleClick);
+  }
+
+  function detachHeaderClick(record) {
+    const header = record.headerBound;
+    if (header && record.headerHandleClick) {
+      header.removeEventListener('click', record.headerHandleClick);
+    }
+    if (header) removeAttrIfChanged(header, 'data-dsh-folding-header-clickable');
+    record.headerBound = null;
+    record.headerHandleClick = null;
   }
 
   function detachToggle(record) {
@@ -220,6 +331,19 @@ function installWorkspaceFolding(doc, win) {
   }
 
   function togglePlacement(record) {
+    if (record.header && record.header.isConnected) {
+      let label = record.headerLabel;
+      if (!label || !label.isConnected || label.parentNode !== record.header) {
+        label = findHeaderLabel(record.header, record.language);
+        record.headerLabel = label;
+      }
+      if (label) {
+        let before = label.nextSibling;
+        if (before === record.toggle) before = record.toggle.nextSibling;
+        return { parent: record.header, before: before };
+      }
+      return { parent: record.header, before: null };
+    }
     const placement = foldingCompatResolveControlPlacement(record.nav);
     return placement || { parent: record.root, before: record.seat };
   }
@@ -242,6 +366,7 @@ function installWorkspaceFolding(doc, win) {
 
   function applyRecord(record) {
     const seat = record.seat;
+    const target = record.hideTarget || seat;
     const toggle = record.toggle;
     if (!seat.isConnected || !toggle || !toggle.isConnected) return;
 
@@ -250,8 +375,11 @@ function installWorkspaceFolding(doc, win) {
       placement.parent.insertBefore(toggle, placement.before);
     }
 
-    const seatId = ensureSeatId(record);
-    setAttrIfChanged(toggle, 'aria-controls', seatId);
+    const inHeader = !!record.header;
+    setAttrIfChanged(toggle, 'data-dsh-folding-in-header', inHeader ? 'true' : 'false');
+
+    const targetId = ensureSeatId(record);
+    setAttrIfChanged(toggle, 'aria-controls', targetId);
     setAttrIfChanged(toggle, 'aria-expanded', collapsed ? 'false' : 'true');
     setAttrIfChanged(
       toggle,
@@ -265,15 +393,15 @@ function installWorkspaceFolding(doc, win) {
     setAttrIfChanged(toggle, 'data-dsh-folding-column-collapsed', columnCollapsed ? 'true' : 'false');
 
     const label = toggle.querySelector('[data-dsh-folding-role="label"]');
-    setTextIfChanged(label, record.language === 'zh' ? '工作区' : 'Workspaces');
+    setTextIfChanged(label, inHeader ? '' : (record.language === 'zh' ? '工作区' : 'Workspaces'));
 
     const arrow = toggle.querySelector('[data-dsh-folding-role="arrow"]');
     setTextIfChanged(arrow, collapsed ? '▸' : '▾');
 
     if (collapsed) {
-      setAttrIfChanged(seat, HIDDEN_ATTR, 'true');
+      setAttrIfChanged(target, HIDDEN_ATTR, 'true');
     } else {
-      removeAttrIfChanged(seat, HIDDEN_ATTR);
+      removeAttrIfChanged(target, HIDDEN_ATTR);
     }
   }
 
@@ -316,20 +444,21 @@ function installWorkspaceFolding(doc, win) {
     applyAll();
   }
 
-  function restoreSeatAttributes(record) {
-    const seat = record.seat;
-    if (!seat) return;
-    if (record.oldHidden === null) removeAttrIfChanged(seat, HIDDEN_ATTR);
-    else setAttrIfChanged(seat, HIDDEN_ATTR, record.oldHidden);
-    if (record.generatedId && seat.getAttribute('id') === record.generatedId) {
-      if (record.oldId === null) seat.removeAttribute('id');
-      else seat.setAttribute('id', record.oldId);
+  function restoreTargetAttributes(record) {
+    const target = record.hideTarget;
+    if (!target) return;
+    if (record.oldHidden === null) removeAttrIfChanged(target, HIDDEN_ATTR);
+    else setAttrIfChanged(target, HIDDEN_ATTR, record.oldHidden);
+    if (record.generatedId && target.getAttribute('id') === record.generatedId) {
+      if (record.oldId === null) target.removeAttribute('id');
+      else target.setAttribute('id', record.oldId);
     }
   }
 
   function removeRecord(record) {
+    detachHeaderClick(record);
     detachToggle(record);
-    restoreSeatAttributes(record);
+    restoreTargetAttributes(record);
     records.delete(record.seat);
   }
 
@@ -359,8 +488,7 @@ function installWorkspaceFolding(doc, win) {
           record.root = root;
           record.appFrame = appFrame;
           record.nav = roots[r].nav;
-          record.searchButton = browserInfo.searchButton;
-          record.language = detectLanguage(browserInfo.searchButton);
+          applyBrowserInfo(record, browserInfo);
         }
 
         seen.add(seat);
