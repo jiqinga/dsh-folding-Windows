@@ -344,8 +344,9 @@ exports.install = function install(doc, win) {
     };
     control.addEventListener('click', record.onClick);
 
-    if (nav.parentElement) {
-      nav.parentElement.insertBefore(control, nav);
+    const placement = foldingCompatResolveControlPlacement(nav);
+    if (placement) {
+      placement.parent.insertBefore(control, placement.before);
     }
 
     return record;
@@ -448,11 +449,11 @@ exports.install = function install(doc, win) {
       if (!record) {
         record = createRecord(nav);
         instances.set(nav, record);
-      } else if (
-        nav.parentElement &&
-        (record.control.parentNode !== nav.parentElement || nav.previousElementSibling !== record.control)
-      ) {
-        nav.parentElement.insertBefore(record.control, nav);
+      } else {
+        const placement = foldingCompatResolveControlPlacement(nav);
+        if (placement && !foldingCompatHasControlPlacement(record.control, placement)) {
+          placement.parent.insertBefore(record.control, placement.before);
+        }
       }
 
       updateRecord(record);

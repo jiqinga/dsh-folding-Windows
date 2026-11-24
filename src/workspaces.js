@@ -133,7 +133,7 @@ function installWorkspaceFolding(doc, win) {
       const root = foldingCompatResolveHost(nav);
       const column = foldingCompatResolveColumn(nav);
       if (!isDiv(root) || !column) return;
-      if (roots.indexOf(root) === -1) roots.push({ host: root, column: column });
+      if (roots.indexOf(root) === -1) roots.push({ host: root, column: column, nav: nav });
     });
     return roots;
   }
@@ -163,10 +163,11 @@ function installWorkspaceFolding(doc, win) {
     return id;
   }
 
-  function createRecord(root, appFrame, seat, browserInfo) {
+  function createRecord(root, appFrame, nav, seat, browserInfo) {
     const record = {
       root: root,
       appFrame: appFrame,
+      nav: nav,
       seat: seat,
       searchButton: browserInfo.searchButton,
       language: detectLanguage(browserInfo.searchButton),
@@ -218,6 +219,11 @@ function installWorkspaceFolding(doc, win) {
     record.toggle = toggle;
   }
 
+  function togglePlacement(record) {
+    const placement = foldingCompatResolveControlPlacement(record.nav);
+    return placement || { parent: record.root, before: record.seat };
+  }
+
   function ensureToggle(record) {
     let toggle = record.toggle;
     if (toggle && (!toggle.isConnected || toggle.getAttribute('data-dsh-folding-section') !== 'workspaces')) {
@@ -228,8 +234,9 @@ function installWorkspaceFolding(doc, win) {
       createToggle(record);
       toggle = record.toggle;
     }
-    if (toggle.parentNode !== record.root || toggle.nextSibling !== record.seat) {
-      record.root.insertBefore(toggle, record.seat);
+    const placement = togglePlacement(record);
+    if (!foldingCompatHasControlPlacement(toggle, placement)) {
+      placement.parent.insertBefore(toggle, placement.before);
     }
   }
 
@@ -238,8 +245,9 @@ function installWorkspaceFolding(doc, win) {
     const toggle = record.toggle;
     if (!seat.isConnected || !toggle || !toggle.isConnected) return;
 
-    if (toggle.parentNode !== record.root || toggle.nextSibling !== seat) {
-      record.root.insertBefore(toggle, seat);
+    const placement = togglePlacement(record);
+    if (!foldingCompatHasControlPlacement(toggle, placement)) {
+      placement.parent.insertBefore(toggle, placement.before);
     }
 
     const seatId = ensureSeatId(record);
@@ -345,11 +353,12 @@ function installWorkspaceFolding(doc, win) {
 
         let record = records.get(seat);
         if (!record) {
-          record = createRecord(root, appFrame, seat, browserInfo);
+          record = createRecord(root, appFrame, roots[r].nav, seat, browserInfo);
           records.set(seat, record);
         } else {
           record.root = root;
           record.appFrame = appFrame;
+          record.nav = roots[r].nav;
           record.searchButton = browserInfo.searchButton;
           record.language = detectLanguage(browserInfo.searchButton);
         }

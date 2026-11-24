@@ -68,13 +68,47 @@ function foldingCompatResolveColumn(nav) {
 
 /**
  * The element that directly holds both the panel nav and the workspace region.
- * This is where fold controls are inserted.
+ * Workspace seats are discovered here; control placement is resolved separately.
  * @param nav - the global-panel nav element.
  * @returns the host element, or null.
  */
 function foldingCompatResolveHost(nav) {
   const host = nav.parentElement;
   return foldingCompatIsElement(host) ? host : null;
+}
+
+/**
+ * Resolve the persistent sidebar slot for a folding control.
+ *
+ * Legacy layouts keep the nav directly in the sidebar column. Modern layouts
+ * put it inside a scrollport; place controls before that scrollport instead.
+ * @param nav - the global-panel nav element.
+ * @returns an insertion parent and anchor, or null.
+ */
+function foldingCompatResolveControlPlacement(nav) {
+  const host = foldingCompatResolveHost(nav);
+  const column = foldingCompatResolveColumn(nav);
+  if (!host || !column) return null;
+  if (host === column) return { parent: host, before: nav };
+
+  let child = host;
+  while (child.parentElement && child.parentElement !== column) {
+    child = child.parentElement;
+  }
+  if (child.parentElement === column) return { parent: column, before: child };
+  return { parent: host, before: nav };
+}
+
+/** Return true when an element is in the placement slot before its anchor. */
+function foldingCompatHasControlPlacement(element, placement) {
+  if (!placement || element.parentNode !== placement.parent) return false;
+  if (!placement.before) return true;
+  let sibling = element.nextSibling;
+  while (sibling) {
+    if (sibling === placement.before) return true;
+    sibling = sibling.nextSibling;
+  }
+  return false;
 }
 
 /**

@@ -161,6 +161,59 @@ test('counts panel entries wrapped by modern sidebar containers', async () => {
   })
 })
 
+test('keeps modern folding controls outside the scrolling sidebar region', async () => {
+  await withPage(async page => {
+    const controls = page.locator('.sidebar-root > button[data-dsh-folding-control]')
+    await page.waitForFunction(() => {
+      const scrollport = document.querySelector('[data-sidebar-scrollport]')
+      const controls = [...document.querySelectorAll('.sidebar-root > button[data-dsh-folding-control]')]
+      return scrollport && controls.length === 2 && controls.every(control => !scrollport.contains(control))
+    })
+    assert.equal(await controls.count(), 2)
+    assert.equal(await page.locator('[data-sidebar-scrollport] > button[data-dsh-folding-control]').count(), 0)
+
+    await page.locator('[data-sidebar-scrollport]').evaluate(scrollport => {
+      scrollport.style.height = '120px'
+      scrollport.style.overflow = 'auto'
+      const filler = document.createElement('div')
+      filler.style.height = '800px'
+      scrollport.appendChild(filler)
+      scrollport.scrollTop = scrollport.scrollHeight
+    })
+
+    const positions = await controls.evaluateAll(elements => elements.map(element => {
+      const rect = element.getBoundingClientRect()
+      return { top: rect.top, bottom: rect.bottom }
+    }))
+    const viewportHeight = await page.evaluate(() => window.innerHeight)
+    positions.forEach(position => {
+      assert.ok(position.top >= 0)
+      assert.ok(position.bottom <= viewportHeight)
+    })
+
+    const tools = page.locator('button[data-dsh-folding-section="tools"]')
+    await tools.click()
+    await page.waitForFunction(() => {
+      const control = document.querySelector('button[data-dsh-folding-section="tools"]')
+      const nav = document.querySelector('nav[aria-label="全局面板"]')
+      return control?.getAttribute('aria-expanded') === 'true' && nav?.getAttribute('data-dsh-folding-hidden') !== 'true'
+    })
+    await tools.click()
+    await page.waitForFunction(() => {
+      const control = document.querySelector('button[data-dsh-folding-section="tools"]')
+      const nav = document.querySelector('nav[aria-label="全局面板"]')
+      return control?.getAttribute('aria-expanded') === 'false' && nav?.getAttribute('data-dsh-folding-hidden') === 'true'
+    })
+    await tools.click()
+    await page.waitForFunction(() => document.querySelector('nav[aria-label="全局面板"]')?.getAttribute('data-dsh-folding-hidden') !== 'true')
+    const workspace = page.locator('button[data-dsh-folding-section="workspaces"]')
+    await workspace.click()
+    await page.waitForFunction(() => document.querySelector('.region')?.getAttribute('data-dsh-folding-workspaces-hidden') === 'true')
+    await workspace.click()
+    await page.waitForFunction(() => document.querySelector('.region')?.getAttribute('data-dsh-folding-workspaces-hidden') !== 'true')
+  }, '?layout=modern')
+})
+
 test('whole-sidebar collapse keeps the folding control hidden and retains local state', async () => {
   await withPage(async page => {
     await expectExpanded(page, false)
